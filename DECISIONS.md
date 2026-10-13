@@ -1,7 +1,7 @@
 # DECISIONS.md
 
 1. **Indexes.**
-   - `employees`: unique `{"emp_code": 1}` for fast lookup and insertion integrity; compound `{"department": 1, "joined_on": 1}` backing department filtering and historical headcount lookups.
+   - `employees`: unique `{"emp_code": 1}` for fast lookup and insertion integrity; compound `{"department": 1, "joined_on": 1}` and `{"joined_on": 1, "department": 1}` backing department filtering and period headcount aggregations without full scans.
    - `attendance_logs`: unique compound `{"emp_code": 1, "date": 1}` guaranteeing one record per day; `{"date": -1, "emp_code": 1}` backing paginated listing; `{"emp_code": 1, "punch_in": -1}` for punch-out resolution; `{"date": 1, "late_minutes": 1}` and `{"emp_code": 1, "date": 1, "status": 1}` backing monthly and leaderboard aggregations.
    - *Rejected*: indexing `{"history.at": 1}` because the audit log is strictly appended, never queried independently.
 
