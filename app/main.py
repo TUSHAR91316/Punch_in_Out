@@ -114,9 +114,11 @@ class RegularizeRequest(BaseModel):
 # --------------------------------------------------------------------------- #
 # Calculation & Serialization Helpers
 # --------------------------------------------------------------------------- #
-def to_epoch_ms(dt: Optional[datetime]) -> Optional[int]:
+def to_epoch_ms(dt: Any) -> Optional[int]:
     if dt is None:
         return None
+    if isinstance(dt, (int, float)):
+        return int(dt)
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return int(dt.timestamp() * 1000)

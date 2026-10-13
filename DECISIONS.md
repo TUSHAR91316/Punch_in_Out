@@ -1,18 +1,16 @@
 # DECISIONS.md
 
 1. **Indexes.**
-   - `employees`: unique `{"emp_code": 1}` for fast lookup and insertion integrity; compound `{"department": 1, "joined_on": 1}` and `{"joined_on": 1, "department": 1}` backing department filtering and period headcount aggregations without full scans.
-   - `attendance_logs`: unique compound `{"emp_code": 1, "date": 1}` guaranteeing one record per day; `{"date": -1, "emp_code": 1}` backing paginated listing; `{"emp_code": 1, "punch_in": -1}` for punch-out resolution; `{"date": 1, "late_minutes": 1}` and `{"emp_code": 1, "date": 1, "status": 1}` backing monthly and leaderboard aggregations.
-   - *Rejected*: indexing `{"history.at": 1}` because the audit log is strictly appended, never queried independently.
+   Unique `emp_code` on `employees`; compound `(joined_on, department)` and `(department, joined_on)` for department queries and headcount. On `attendance_logs`: unique `(emp_code, date)` enforcing one daily record; `(date, emp_code)` for paginated listing; `(emp_code, punch_in)` for punch-out; `(date, late_minutes)` for leaderboard. Rejected indexing `history.at` because audit logs are purely appended, never queried directly.
 
 2. **Punch-in race.**
-   Both requests fetch the employee document (read-only) and resolve the attendance date. Both issue `insert_one`. WiredTiger resolves the race at the index level: the first write locks the unique key `(emp_code, date)` and succeeds (HTTP 201). The second fails with `DuplicateKeyError`, caught by our exception handler to return HTTP 409 safely without race conditions.
+   Both requests compute the date and attempt `insert_one`. WiredTiger resolves concurrency at the unique `(emp_code, date)` index: the first write locks the key and returns 201; the second raises `DuplicateKeyError`, caught to return HTTP 409 without races.
 
 3. **Ties.**
-   The leaderboard uses standard competition ranking via `$rank` in `$setWindowFields` (e.g. 1, 2, 2, 4). The `limit` filter is applied *after* ranking (`$match: {"rank": {"$lte": limit}}`). If two employees tie at the cutoff rank, both are returned, resulting in more than `limit` items, ordered secondary by `emp_code` ascending.
+   The leaderboard assigns standard competition rank via `$rank` in `$setWindowFields` (1, 2, 2, 4). The `limit` applies post-ranking (`rank <= limit`). All employees tied at or below the cutoff are returned, even if exceeding `limit` rows, sorted secondary by `emp_code` ascending.
 
 4. **Headcount.**
-   The aggregation roots on `employees` filtered by `joined_on <= month_end`, grouping by department to establish baseline headcount first. It then `$lookup` joins `attendance_logs`. Employees without logs still contribute to the headcount counter, while contributing zeroes to attendance metrics.
+   The aggregation roots on `employees` filtered by `joined_on <= month_end`, grouping by department to establish baseline headcount before `$lookup` joining `attendance_logs`. Employees without logs still increment headcount while contributing zeroes to attendance metrics.
 
 5. **One thing you would change for 100x data.**
-   Introduce daily attendance rollups using MongoDB Change Streams or a scheduled aggregation into a materialized `department_daily_rollups` collection. Aggregating over 10M raw attendance documents on every request becomes I/O heavy; pre-aggregated daily summaries turn monthly metrics and trends into sub-millisecond point lookups.
+   Pre-aggregate daily attendance into a materialized `department_daily_rollups` collection via Change Streams. At 100x data, scanning raw logs degrades latency; pre-computed daily rollups convert monthly analytics and trends into sub-millisecond point lookups.
