@@ -27,3 +27,6 @@ candidate_kit/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Local mongo data directory
+.mongo_data/
